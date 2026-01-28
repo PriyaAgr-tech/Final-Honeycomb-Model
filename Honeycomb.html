@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<title>Biology - Honeycomb Model - Priya Agrawal</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<style>
+    :root { --gold: #facc15; --bg: #0f172a; --panel: #161d31; --green: #22c55e; --red: #ef4444; --orange: #f97316; --yellow: #eab308; --cyan: #22d3ee; }
+    body{font-family:'Segoe UI',Arial;background:var(--bg);color:#e5e7eb;margin:0;padding:15px;overflow-x:hidden}
+    .container{max-width:1450px;margin:auto;display:flex;gap:15px}
+    .controls{flex:1;background:var(--panel);padding:20px;border-radius:12px;border-left:5px solid var(--gold);max-height:95vh;overflow-y:auto}
+    .sim-area{flex:2.5;display:flex;flex-direction:column;gap:10px}
+    canvas#c{background:#0a0f1d;border-radius:12px;width:100%;height:440px;border:1px solid #1e293b}
+    .graph-container{background:#0a0f1d;border-radius:12px;padding:15px;border:1px solid #1e293b;height:200px}
+    h2{margin:0 0 10px 0; font-size: 1.2em; color: #fff; border-bottom: 1px solid #334155; padding-bottom: 8px;}
+    label{color:#fff; font-weight:bold; display:block; margin-top:10px; font-size: 0.8em;}
+    input[type=range]{width:100%;accent-color:var(--gold);margin:5px 0}
+    select{width:100%; background:#1e293b; color:white; border:1px solid #334155; padding:8px; border-radius:5px; margin-top:5px}
+    .btn-group{display:flex;gap:5px;margin:10px 0}
+    .btn{padding:8px; border:0; border-radius:6px; cursor:pointer; font-weight:bold; background:#334155; color:#fff; flex:1; font-size: 0.75em;}
+    .btn.active{background:var(--gold); color:#000}
+    .drop-btn{width:100%; background:var(--green); color:white; margin-top:10px; font-size:1em; border:0; border-radius:8px; padding:15px; cursor:pointer; font-weight:700; text-transform:uppercase}
+    .report-btn{width:100%; background:#3b82f6; color:white; margin-top:10px; font-size:0.9em; border:0; border-radius:8px; padding:10px; cursor:pointer; font-weight:600;}
+    .stat-box{margin-top:10px; padding:12px; background:#111827; border-radius:10px; border:1px solid #1e293b}
+    table{width:100%; font-size: 0.75em; border-collapse: collapse; margin-top: 5px;}
+    th, td{text-align: left; padding: 4px; border-bottom: 1px solid #1e293b;}
+    .math-overlay { position: absolute; top: 20px; right: 20px; background: rgba(0,0,0,0.8); padding: 12px; border-radius: 8px; border: 1px solid var(--gold); font-family: 'Courier New', monospace; font-size: 0.85em; color: var(--gold); pointer-events: none; line-height: 1.4; z-index: 10;}
+</style>
+</head>
+<body>
+
+<div class="container">
+    <div class="controls">
+        <h2>Biology - Honeycomb Model<br><span style="font-size:0.8em; color:var(--gold)">Priya Agrawal</span></h2>
+        
+        <label>Material Yield Strength ($\sigma_y$):</label>
+        <select id="matSelect">
+            <option value="1.0">Aluminum (7075-T6)</option>
+            <option value="0.5">PLA Polymer</option>
+            <option value="0.2">Fibrous Cardboard</option>
+        </select>
+
+        <label>Applied Load ($F$): <span id="wVal" style="color:var(--gold)">2000 N</span></label>
+        <input type="range" id="weight" min="100" max="6000" step="100" value="2000">
+        
+        <div style="font-size: 0.85em; margin: 5px 0;">Object: <span id="objName" style="color:var(--gold)">📦 Crate</span></div>
+
+        <label>Wall Thickness ($t$): <span id="tVal">2.5</span>mm</label>
+        <input type="range" id="thickness" min="1" max="5" step="0.5" value="2.5">
+
+        <label>Structural Fatigue ($\omega$):</label>
+        <input type="range" id="fatigue" min="0" max="80" value="0">
+
+        <label>Geometry Configuration:</label>
+        <div class="btn-group">
+            <button class="btn active" onclick="setShape('hex', this)">Hexagon</button>
+            <button class="btn" onclick="setShape('tri', this)">Triangle</button>
+            <button class="btn" onclick="setShape('sq', this)">Square</button>
+        </div>
+
+        <button class="btn drop-btn" onclick="startDrop()">Release & Impact</button>
+        <button class="report-btn" onclick="downloadReport()">Download Lab Report</button>
+
+        <div class="stat-box">
+            <table id="compTable">
+                <tr><th>Shape</th><th>Max Load ($P_{cr}$)</th><th>Safety Factor</th></tr>
+                <tr id="row-hex"><td>Hexagon</td><td class="ml">3000N</td><td class="sf">1.50</td></tr>
+                <tr id="row-tri"><td>Triangle</td><td class="ml">2100N</td><td class="sf">1.05</td></tr>
+                <tr id="row-sq"><td>Square</td><td class="ml">1200N</td><td class="sf">0.60</td></tr>
+            </table>
+        </div>
+    </div>
+
+    <div class="sim-area">
+        <div style="position:relative">
+            <canvas id="c" width="850" height="440"></canvas>
+            <div class="math-overlay" id="mathDisplay">
+                <b>Structural Formulas:</b><br>
+                σ = F / A <br>
+                P<sub>cr</sub> = (π²EI) / L² <br>
+                SF = σ<sub>yield</sub> / σ<sub>applied</sub><br>
+                -------------------<br>
+                Status: IDLE
+            </div>
+        </div>
+        <div class="graph-container">
+            <canvas id="stressGraph"></canvas>
+        </div>
+    </div>
+</div>
+
+<script>
+    const canvas = document.getElementById('c'), ctx = canvas.getContext('2d');
+    const graphCtx = document.getElementById('stressGraph').getContext('2d');
+    
+    let currentWeight = 2000, currentShape = 'hex', wallTh = 2.5, fatigue = 0, matMod = 1.0;
+    let isFalling = false, isCrushed = false, objY = -80, velocity = 0, pulseProgress = -1;
+    let history = [];
+
+    const BASE_LIMITS = { hex: 3000, tri: 2100, sq: 1200 };
+
+    const chart = new Chart(graphCtx, {
+        type: 'line',
+        data: { labels: [], datasets: [{ label: 'Impact Force', data: [], borderColor: '#facc15', backgroundColor: 'rgba(250, 204, 21, 0.1)', fill: true, tension: 0.4 }] },
+        options: { 
+            responsive: true, 
+            maintainAspectRatio: false, 
+            scales: { 
+                y: { min: 0, max: 6500, title: { display: true, text: 'Force (N)', color: '#fff' } }, 
+                x: { ticks: { display: false } } 
+            }, 
+            plugins: { legend: { display: false } } 
+        }
+    });
+
+    function setShape(s, btn) {
+        currentShape = s;
+        document.querySelectorAll('.btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        resetSim();
+    }
+
+    document.getElementById('weight').oninput = e => { currentWeight = +e.target.value; updateUI(); };
+    document.getElementById('thickness').oninput = e => { wallTh = +e.target.value; document.getElementById('tVal').innerText = wallTh; updateUI(); };
+    document.getElementById('fatigue').oninput = e => { fatigue = +e.target.value; updateUI(); };
+    document.getElementById('matSelect').onchange = e => { matMod = +e.target.value; updateUI(); };
+
+    function updateUI() {
+        document.getElementById('wVal').innerText = currentWeight + " N";
+        let objS = document.getElementById('objName');
+        if (currentWeight <= 1000) objS.innerText = "🪶 Feather";
+        else if (currentWeight <= 2500) objS.innerText = "📦 Crate";
+        else if (currentWeight <= 4500) objS.innerText = "🏗️ Anvil";
+        else objS.innerText = "☄️ Tungsten";
+
+        ['hex', 'tri', 'sq'].forEach(s => {
+            let max = Math.round(BASE_LIMITS[s] * (wallTh / 2.5) * (1 - fatigue/100) * matMod);
+            let row = document.getElementById('row-' + s);
+            row.querySelector('.ml').innerText = max + "N";
+            let sf = (max / currentWeight).toFixed(2);
+            let rowSf = row.querySelector('.sf');
+            rowSf.innerText = sf;
+            rowSf.style.color = sf < 1 ? 'var(--red)' : 'var(--green)';
+        });
+        draw();
+    }
+
+    function resetSim() {
+        isFalling = isCrushed = false; objY = -80; velocity = 0; pulseProgress = -1;
+        chart.data.labels = []; chart.data.datasets[0].data = []; chart.update();
+        document.getElementById('mathDisplay').innerHTML = `Status: READY`;
+        updateUI();
+    }
+
+    function draw() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        const size = 32;
+        const impactX = canvas.width / 2;
+
+        for(let r=0; r<5; r++) {
+            for(let c=0; c<15; c++) {
+                let x, y;
+                if(currentShape === 'hex') {
+                    x = c * (size * 1.5) + 50;
+                    y = r * (size * 1.732) + 260;
+                    if(c % 2 !== 0) y += (size * 0.866);
+                } else if(currentShape === 'sq') {
+                    x = c * (size * 2) + 45;
+                    y = r * (size * 2) + 260;
+                } else { 
+                    x = c * size + 60;
+                    y = r * (size * 1.732) + 260;
+                }
+
+                let dx = x - impactX;
+                let distance = Math.abs(dx);
+                
+                let vibY = 0;
+                let permanentDent = 0;
+                let stressIntensity = 0;
+
+                if (pulseProgress >= 0) {
+                    let waveFront = distance / 20; 
+                    let localTime = pulseProgress - waveFront;
+
+                    if (localTime > 0) {
+                        let strength = Math.max(0, 20 - (distance / 35));
+                        let decay = Math.exp(-localTime / 100);
+                        // Significant vibration depth for "stress" look
+                        vibY = Math.sin(localTime * 0.12) * strength * decay;
+                        permanentDent = (strength * 1.0) * (1 - decay);
+                        stressIntensity = strength / 20; 
+                    }
+                }
+
+                let dH = size;
+                let finalY = y + vibY + permanentDent;
+                let crushZone = 200; 
+
+                if (isCrushed && Math.abs(dx) < crushZone) {
+                    let intensity = 1 - (Math.abs(dx) / crushZone);
+                    dH = size * (1 - 0.8 * intensity);
+                    finalY += (35 * intensity);
+                }
+
+                // --- FIXED THICKNESS LOGIC ---
+                let lw = wallTh; // Thickness strictly follows input
+                let stroke = "rgba(34, 211, 238, 0.4)"; 
+
+                if (stressIntensity > 0) {
+                    if (stressIntensity > 0.8) stroke = `rgba(239, 68, 68, 1)`;
+                    else if (stressIntensity > 0.5) stroke = `rgba(249, 115, 22, 1)`;
+                    else if (stressIntensity > 0.25) stroke = `rgba(234, 179, 8, 1)`;
+                    else stroke = `rgba(34, 197, 94, 1)`;
+                    
+                    // Use glow (shadow) for "stress" instead of increasing line width
+                    ctx.shadowBlur = stressIntensity * 12;
+                    ctx.shadowColor = stroke;
+                }
+                
+                ctx.lineWidth = lw; ctx.strokeStyle = stroke; ctx.beginPath();
+                if(currentShape === 'hex') {
+                    for(let i=0; i<6; i++) {
+                        let a = (Math.PI/3) * i;
+                        ctx.lineTo(x + size * Math.cos(a), finalY + (dH * 0.9) * Math.sin(a));
+                    }
+                } else if(currentShape === 'sq') {
+                    ctx.strokeRect(x-size, finalY-dH, size*2, dH*2);
+                } else {
+                    let isUp = (r + c) % 2 === 0;
+                    if(isUp) {
+                        ctx.moveTo(x, finalY - dH); ctx.lineTo(x + size, finalY + dH); ctx.lineTo(x - size, finalY + dH);
+                    } else {
+                        ctx.moveTo(x, finalY + dH); ctx.lineTo(x + size, finalY - dH); ctx.lineTo(x - size, finalY - dH);
+                    }
+                }
+                ctx.closePath(); ctx.stroke();
+                ctx.shadowBlur = 0; // Reset glow for next cell
+            }
+        }
+
+        // DRAW ICON
+        ctx.font = "60px Arial"; ctx.textAlign = "center";
+        let icon = currentWeight <= 1000 ? "🪶" : currentWeight <= 2500 ? "📦" : currentWeight <= 4500 ? "🏗️" : "☄️";
+        let objBounce = (pulseProgress > 0 && pulseProgress < 200) ? Math.sin(pulseProgress * 0.1) * 6 * Math.exp(-pulseProgress/100) : 0;
+        ctx.fillText(icon, canvas.width/2, objY + objBounce + 10);
+        ctx.font = "bold 16px Arial"; ctx.fillStyle = "white"; 
+        ctx.fillText(currentWeight + "N", canvas.width/2, objY + 30 + objBounce);
+    }
+
+    function startDrop() { if(!isFalling) { resetSim(); isFalling = true; animate(); } }
+
+    function animate() {
+        if(isFalling) {
+            velocity += 0.8; objY += velocity;
+            if(objY > 0) { 
+                chart.data.labels.push(""); 
+                chart.data.datasets[0].data.push(Math.min(currentWeight, (objY/250) * currentWeight)); 
+                chart.update('none'); 
+            }
+            if(objY >= 250) { 
+                isFalling = false; objY = 250; pulseProgress = 0; 
+                let max = Math.round(BASE_LIMITS[currentShape] * (wallTh / 2.5) * (1 - fatigue/100) * matMod);
+                isCrushed = currentWeight > max;
+                document.getElementById('mathDisplay').innerHTML = `Status: ` + (isCrushed ? "FAILURE" : "DISTRIBUTED");
+                history.push({shape: currentShape, weight: currentWeight, status: isCrushed ? "FAILED" : "PASSED"});
+            }
+        }
+        if (pulseProgress >= 0 && pulseProgress < 500) pulseProgress += 1.5;
+        draw();
+        if(isFalling || (pulseProgress >= 0 && pulseProgress < 500)) requestAnimationFrame(animate);
+    }
+
+    function downloadReport() {
+        let text = "HONEYCOMB LAB REPORT\nStudent: Priya Agrawal\n\n";
+        history.forEach((h, i) => { text += `Test ${i+1}: Shape=${h.shape}, Load=${h.weight}N, Result=${h.status}\n`; });
+        let blob = new Blob([text], {type: "text/plain"});
+        let a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = "Lab_Report.txt"; a.click();
+    }
+    window.onload = updateUI;
+</script>
+</body>
+</html>
